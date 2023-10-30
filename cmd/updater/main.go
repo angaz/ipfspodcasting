@@ -219,6 +219,11 @@ func repoStats(client *rpc.HttpApi) (*repoStatsResponse, error) {
 func pinDelete(client *rpc.HttpApi, hash string) error {
 	err := client.Pin().Rm(context.Background(), path.New(hash))
 	if err != nil {
+		// This error is OK for us. Sometimes we get delete requests for
+		// files we don't have pinned. That's OK.
+		if strings.Contains(err.Error(), "not pinned or pinned indirectly") {
+			return nil
+		}
 		return fmt.Errorf("request failed: %w", err)
 	}
 
@@ -628,38 +633,58 @@ func (r WorkResponse) Reader() io.Reader {
 }
 
 func requestWork(client *http.Client, workResponse WorkResponse) (*Work, error) {
-	resp, err := client.Post(
-		"https://ipfspodcasting.net/request",
-		"application/x-www-form-urlencoded",
-		workResponse.Reader(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("fetching work failed: %w", err)
+	retries := 5
+
+	for {
+		resp, err := client.Post(
+			"https://ipfspodcasting.net/request",
+			"application/x-www-form-urlencoded",
+			workResponse.Reader(),
+		)
+		if err != nil {
+			if retries > 0 && strings.Contains(err.Error(), "EOF") {
+				time.Sleep(5 * time.Second)
+				retries -= 1
+				continue
+			}
+
+			return nil, fmt.Errorf("fetching work failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		decoder := json.NewDecoder(resp.Body)
+		var work Work
+
+		err = decoder.Decode(&work)
+		if err != nil {
+			return nil, fmt.Errorf("decoding work failed: %w", err)
+		}
+
+		return &work, nil
 	}
-	defer resp.Body.Close()
-
-	decoder := json.NewDecoder(resp.Body)
-	var work Work
-
-	err = decoder.Decode(&work)
-	if err != nil {
-		return nil, fmt.Errorf("decoding work failed: %w", err)
-	}
-
-	return &work, nil
 }
 
 func responseWork(client *http.Client, workResponse WorkResponse) error {
-	resp, err := client.Post(
-		"https://ipfspodcasting.net/response",
-		"application/x-www-form-urlencoded",
-		workResponse.Reader(),
-	)
-	if err != nil {
-		return fmt.Errorf("fetching work failed: %w", err)
+	retries := 5
+
+	for {
+		resp, err := client.Post(
+			"https://ipfspodcasting.net/response",
+			"application/x-www-form-urlencoded",
+			workResponse.Reader(),
+		)
+		if err != nil {
+			if retries > 0 && strings.Contains(err.Error(), "EOF") {
+				time.Sleep(5 * time.Second)
+				retries -= 1
+				continue
+			}
+
+			return fmt.Errorf("fetching work failed: %w", err)
+		}
+
+		resp.Body.Close()
+
+		return nil
 	}
-
-	resp.Body.Close()
-
-	return nil
 }
