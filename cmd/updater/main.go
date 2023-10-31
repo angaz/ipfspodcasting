@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ipfs/boxo/coreiface/path"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/kubo/client/rpc"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -123,7 +124,7 @@ func doWork(client *rpc.HttpApi, httpClient *http.Client, workResponse WorkRespo
 	if work.Download != "" && work.Filename != "" {
 		slog.Info("Got download job", "download", work.Download, "filename", work.Filename)
 
-		downloaded, err := downloadFile(client, httpClient, work.Download, work.Filename)
+		downloaded, err := downloadOrPinFile(client, httpClient, work.Download, work.Filename)
 		if err != nil {
 			slog.Error("downloading file failed", "file", work.Download, "err", err)
 			workResponse.Error = &errInt
@@ -136,26 +137,13 @@ func doWork(client *rpc.HttpApi, httpClient *http.Client, workResponse WorkRespo
 	if work.Pin != "" {
 		slog.Info("Got pin job", "pin", work.Pin)
 
-		err := pinAdd(client, work.Pin)
+		pinned, err := pinFile(client, work.Pin)
 		if err != nil {
 			slog.Error("pin add failed", "err", err)
 			workResponse.Error = &errInt
 		} else {
-			lsResp, err := ls(client, work.Pin)
-			if err != nil {
-				slog.Error("ls failed", "err", err)
-				workResponse.Error = &errInt
-			} else {
-				if len(lsResp.Objects) != 1 && len(lsResp.Objects[0].Links) != 1 {
-					slog.Error("ls objects or links is not 1", "ls", lsResp)
-					workResponse.Error = &errInt
-				} else {
-					link := lsResp.Objects[0].Links[0]
-					pinned := link.Hash + "/" + work.Pin
-					workResponse.Pinned = &pinned
-					workResponse.Length = &link.Size
-				}
-			}
+			workResponse.Pinned = &pinned.Pinned
+			workResponse.Length = &pinned.Length
 		}
 	}
 
@@ -185,6 +173,35 @@ func doWork(client *rpc.HttpApi, httpClient *http.Client, workResponse WorkRespo
 	}
 
 	return true, nil
+}
+
+type PinFileResponse struct {
+	Pinned string
+	Length int
+}
+
+func pinFile(client *rpc.HttpApi, hash string) (*PinFileResponse, error) {
+	err := pinAdd(client, hash)
+	if err != nil {
+		return nil, fmt.Errorf("pin add failed: %w", err)
+	}
+
+	lsResp, err := ls(client, hash)
+	if err != nil {
+		return nil, fmt.Errorf("ls failed: %w", err)
+	}
+
+	if len(lsResp.Objects) != 1 && len(lsResp.Objects[0].Links) != 1 {
+		return nil, fmt.Errorf("ls objects or links is not 1")
+	}
+
+	link := lsResp.Objects[0].Links[0]
+	pinned := link.Hash + "/" + hash
+
+	return &PinFileResponse{
+		Pinned: pinned,
+		Length: link.Size,
+	}, nil
 }
 
 type repoStatsResponse struct {
@@ -300,6 +317,42 @@ type downloadFileResponse struct {
 	Length         int
 }
 
+func downloadOrPinFile(client *rpc.HttpApi, httpClient *http.Client, download string, filename string) (*downloadFileResponse, error) {
+	url, err := url.Parse(download)
+	if err != nil {
+		slog.Info("parse download url failed", "err", err, "download", download)
+
+		return downloadFile(client, httpClient, download, filename)
+	}
+
+	if strings.HasPrefix(url.Path, "/ipfs/") {
+		slog.Info("found ipfs file", "download", download)
+
+		// /ipfs/<cid = 46>/...
+		//      ^5         ^52
+		downloadCid, err := cid.Decode(url.Path[6:52])
+		if err != nil {
+			slog.Info("parse cid failed", "err", err, "download", download)
+
+			return downloadFile(client, httpClient, download, filename)
+		}
+
+		pin, err := pinFile(client, downloadCid.String())
+		if err != nil {
+			slog.Error("pin instead of download failed", "err", err)
+
+			return downloadFile(client, httpClient, download, filename)
+		}
+
+		return &downloadFileResponse{
+			DownloadedFile: pin.Pinned,
+			Length:         pin.Length,
+		}, nil
+	}
+
+	return downloadFile(client, httpClient, download, filename)
+}
+
 func downloadFile(client *rpc.HttpApi, httpClient *http.Client, download string, filename string) (*downloadFileResponse, error) {
 	downloadResp, err := httpClient.Get(download)
 	if err != nil {
@@ -342,13 +395,13 @@ func downloadFile(client *rpc.HttpApi, httpClient *http.Client, download string,
 	defer resp.Output.Close()
 
 	if mpwCreateFormFileErr != nil {
-		return nil, fmt.Errorf("creating form file failed: %w", err)
+		return nil, fmt.Errorf("creating form file failed: %w", mpwCreateFormFileErr)
 	}
 	if copyErr != nil {
-		return nil, fmt.Errorf("copy download failed: %w", err)
+		return nil, fmt.Errorf("copy download failed: %w", copyErr)
 	}
 	if mpwCloseErr != nil {
-		return nil, fmt.Errorf("closing mutlipart writer failed: %w", err)
+		return nil, fmt.Errorf("closing mutlipart writer failed: %w", mpwCloseErr)
 	}
 
 	decoder := json.NewDecoder(resp.Output)
@@ -643,8 +696,10 @@ func requestWork(client *http.Client, workResponse WorkResponse) (*Work, error) 
 		)
 		if err != nil {
 			if retries > 0 && strings.Contains(err.Error(), "EOF") {
+				slog.Info("ipfspodcasting.net/request failed, retrying", "err", err, "retries_left", retries)
 				time.Sleep(5 * time.Second)
 				retries -= 1
+
 				continue
 			}
 
@@ -665,6 +720,7 @@ func requestWork(client *http.Client, workResponse WorkResponse) (*Work, error) 
 }
 
 func responseWork(client *http.Client, workResponse WorkResponse) error {
+	slog.Info("response", "work_response", workResponse)
 	retries := 5
 
 	for {
@@ -675,8 +731,10 @@ func responseWork(client *http.Client, workResponse WorkResponse) error {
 		)
 		if err != nil {
 			if retries > 0 && strings.Contains(err.Error(), "EOF") {
+				slog.Info("ipfspodcasting.net/response failed, retrying", "err", err, "retries_left", retries)
 				time.Sleep(5 * time.Second)
 				retries -= 1
+
 				continue
 			}
 
