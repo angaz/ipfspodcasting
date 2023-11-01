@@ -779,7 +779,6 @@ func requestWork(client *http.Client, workResponse WorkResponse) (*Work, error) 
 }
 
 func responseWork(client *http.Client, workResponse WorkResponse) error {
-	slog.Info("response", "work_response", workResponse)
 	retries := 5
 
 	for {
