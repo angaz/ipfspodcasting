@@ -16,13 +16,10 @@ cycle. It waits a small period between each episode downloaded, and a longer,
 configurable time between updates where there was nothing to do. So the initial
 sync is much faster.
 
-It also uses the HTTP API instead of using subprocesses, which is more likely
-to work on more systems and requires no dependencies.
-
 ### NixOS Module
 
-The Nix Flake also contains a NixOS module, so you can install and configure
-the updater on your NixOS installation.
+The [Nix Flake][nix-flake] also contains a [NixOS][nixos] module, so you can
+install and configure the updater on your NixOS installation.
 
 An example configuration:
 
@@ -67,4 +64,7 @@ An example configuration:
 ```
 
 [ipfspodcasting]: https://ipfspodcasting.net
-[upfster-script]: https://github.com/Cameron-IPFSPodcasting/podcastnode-Python/blob/main/ipfspodcastnode.py
+[kubo]: https://github.com/ipfs/kubo
+[updater-script]: https://github.com/Cameron-IPFSPodcasting/podcastnode-Python/blob/main/ipfspodcastnode.py
+[nix-flake]: https://nixos.wiki/wiki/Flakes
+[nixos]: https://nixos.org
