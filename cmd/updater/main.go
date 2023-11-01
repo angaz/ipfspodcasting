@@ -15,10 +15,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/angaz/ipfspodcasting/pkg/metrics"
 	"github.com/ipfs/boxo/coreiface/path"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/kubo/client/rpc"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -33,6 +35,11 @@ func main() {
 		"http-timeout",
 		5*time.Minute,
 		"Timeout for HTTP requests. For downloading epodes and communicating with Kubo",
+	)
+	metricsAddress := flag.String(
+		"metrics-address",
+		":9196",
+		"address for the prometheus metrics endpoint",
 	)
 	flag.Parse()
 
@@ -64,6 +71,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	go runMetricsServer(client, *metricsAddress)
+
 	workRequest := WorkResponse{
 		Email:   *email,
 		Version: "0.6p",
@@ -86,8 +95,30 @@ func main() {
 	}
 }
 
+func runMetricsServer(client *rpc.HttpApi, metricsAddress string) {
+	metrics.RegisterIPFSPeersTotalFunc(func() float64 {
+		peers, err := getPeers(client)
+		if err != nil {
+			return -1
+		}
+
+		return float64(peers)
+	})
+
+	http.Handle("/metrics", promhttp.Handler())
+
+	slog.Info("starting metrics server", "address", metricsAddress, "path", "/metrics")
+
+	err := http.ListenAndServe(metricsAddress, nil)
+	if err != nil {
+		slog.Error("metrics server failed", "err", err)
+	}
+}
+
 // first return value is if the operation was complete, or false if it exited early for any reason
 func doWork(client *rpc.HttpApi, httpClient *http.Client, workResponse WorkResponse) (bool, error) {
+	start := time.Now()
+
 	errInt := 1
 
 	nID, err := nodeID(client)
@@ -171,6 +202,8 @@ func doWork(client *rpc.HttpApi, httpClient *http.Client, workResponse WorkRespo
 	if err != nil {
 		return false, fmt.Errorf("post stats failed: %w", err)
 	}
+
+	workResponse.ObserveJob(start)
 
 	return true, nil
 }
@@ -620,6 +653,21 @@ func (r WorkResponse) String() string {
 	_ = encoder.Encode(r)
 
 	return sb.String()
+}
+
+func (r WorkResponse) ObserveJob(start time.Time) {
+	duration := time.Since(start)
+	isErr := r.Error != nil
+
+	if r.Downloaded != nil {
+		metrics.ObserveJob("download", isErr, duration)
+	}
+	if r.Pinned != nil {
+		metrics.ObserveJob("pin", isErr, duration)
+	}
+	if r.Deleted != nil {
+		metrics.ObserveJob("delete", isErr, duration)
+	}
 }
 
 type Work struct {

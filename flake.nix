@@ -54,7 +54,7 @@
             src = gitignoreSource ./.;
             subPackages = [ "cmd/updater" ];
 
-            vendorHash = "sha256-6ogK2Wu7DUS9sDKdAJnqVQs4a6Kn40zG4PJjWruqCro=";
+            vendorHash = "sha256-NlqLXSU9SwiCg6bt/+Q4qU/ST4mgqzSbhyaKr57f1Fg=";
 
             doCheck = false;
 
@@ -104,6 +104,18 @@
               description = "API address for Kubo";
             };
 
+            metricsAddress = mkOption {
+              type = types.str;
+              default = "0.0.0.0";
+              description = "Address of the metrics server";
+            };
+
+            metricsPort = mkOption {
+              type = types.port;
+              default = 9196;
+              description = "Port number of the metrics server";
+            };
+
             httpTimeout = mkOption {
               type = types.str;
               default = "5m";
@@ -137,8 +149,13 @@
 
           config = mkIf cfg.enable {
             networking.firewall = mkIf cfg.openFirewall {
-              allowedTCPPorts = [ 4001 ];
-              allowedUDPPorts = [ 4001 ];
+              allowedTCPPorts = [
+                4001
+                cfg.metricsPort
+              ];
+              allowedUDPPorts = [
+                4001
+              ];
             };
 
             services.kubo = {
@@ -165,6 +182,7 @@
                   "--api-address='${cfg.apiAddress}'"
                   "--email='${cfg.email}'"
                   "--http-timeout='${cfg.httpTimeout}'"
+                  "--metrics-address='${cfg.metricsAddress}:${toString cfg.metricsPort}'"
                 ];
               in {
                 ExecStart = "${pkgs.ipfspodcastingUpdater}/bin/updater ${concatStringsSep " " args}";
