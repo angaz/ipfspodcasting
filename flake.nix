@@ -118,7 +118,7 @@
 
             httpTimeout = mkOption {
               type = types.str;
-              default = "5m";
+              default = "10m";
               description = "HTTP timeout. Applies to downloads and requests to Kubo";
             };
 

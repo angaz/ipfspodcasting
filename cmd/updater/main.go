@@ -33,7 +33,7 @@ func main() {
 	)
 	httpTimeout := flag.Duration(
 		"http-timeout",
-		5*time.Minute,
+		10*time.Minute,
 		"Timeout for HTTP requests. For downloading epodes and communicating with Kubo",
 	)
 	metricsAddress := flag.String(
