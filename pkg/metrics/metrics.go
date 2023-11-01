@@ -21,15 +21,27 @@ var (
 			"status",
 		},
 	)
-)
-
-func RegisterIPFSPeersTotalFunc(fn func() float64) {
-	promauto.NewCounterFunc(prometheus.CounterOpts{
+	IPFSPeers = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
-		Name:      "peers_total",
+		Name:      "peers",
 		Help:      "Number of connected IPFS peers",
-	}, fn)
-}
+	})
+	IPFSRepoDiskUsage = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "repo_disk_used_bytes",
+		Help:      "IPFS repo disk usage",
+	})
+	IPFSRepoStorageMax = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "repo_storage_max_bytes",
+		Help:      "IPFS repo max storage limit",
+	})
+	IPFSRepoObjects = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "repo_objects",
+		Help:      "Number of IPFS repo objects",
+	})
+)
 
 func ObserveJob(jobType string, isErr bool, duration time.Duration) {
 	status := "success"

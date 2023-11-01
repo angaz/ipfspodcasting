@@ -96,16 +96,27 @@ func main() {
 }
 
 func runMetricsServer(client *rpc.HttpApi, metricsAddress string) {
-	metrics.RegisterIPFSPeersTotalFunc(func() float64 {
+	handler := promhttp.Handler()
+
+	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		peers, err := getPeers(client)
 		if err != nil {
-			return -1
+			slog.Warn("metrics could not get peers")
+		} else {
+			metrics.IPFSPeers.Set(float64(peers))
 		}
 
-		return float64(peers)
-	})
+		stats, err := repoStats(client)
+		if err != nil {
+			slog.Warn("metrics could not get repo stats")
+		} else {
+			metrics.IPFSRepoDiskUsage.Set(float64(stats.RepoSize))
+			metrics.IPFSRepoObjects.Set(float64(stats.NumObjects))
+			metrics.IPFSRepoStorageMax.Set(float64(stats.StorageMax))
+		}
 
-	http.Handle("/metrics", promhttp.Handler())
+		handler.ServeHTTP(w, r)
+	})
 
 	slog.Info("starting metrics server", "address", metricsAddress, "path", "/metrics")
 
