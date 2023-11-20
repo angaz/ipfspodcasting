@@ -34,7 +34,12 @@ func main() {
 	httpTimeout := flag.Duration(
 		"http-timeout",
 		10*time.Minute,
-		"Timeout for HTTP requests. For downloading epodes and communicating with Kubo",
+		"Timeout for downloading epodes and communicating with ipfspodcasting.net",
+	)
+	kuboHttpTimeout := flag.Duration(
+		"kubo-timeout",
+		6*time.Hour,
+		"Timeout for communicating with Kubo",
 	)
 	metricsAddress := flag.String(
 		"metrics-address",
@@ -65,7 +70,11 @@ func main() {
 		Timeout: *httpTimeout,
 	}
 
-	client, err := rpc.NewApiWithClient(apiAddress, httpClient)
+	kuboHTTPClient := &http.Client{
+		Timeout: *kuboHttpTimeout,
+	}
+
+	client, err := rpc.NewApiWithClient(apiAddress, kuboHTTPClient)
 	if err != nil {
 		slog.Error("creating api client failed", "err", err)
 		os.Exit(1)
@@ -75,16 +84,18 @@ func main() {
 
 	workRequest := WorkResponse{
 		Email:   *email,
-		Version: "0.6p",
+		Version: "0.6g", // g postfix used for this Go client.
 	}
 
 	for {
 		nextUpdate := time.Now().Add(*updateFrequency)
 
-		_, err := doWork(client, httpClient, workRequest)
+		complete, err := doWork(client, httpClient, workRequest)
 		if err != nil {
 			slog.Error("job failed", "err", err)
 		}
+
+		slog.Info("job finished", "complete", complete)
 
 		time.Sleep(time.Until(nextUpdate))
 	}
@@ -121,22 +132,17 @@ func runMetricsServer(client *rpc.HttpApi, metricsAddress string) {
 	}
 }
 
-// first return value is if the operation was complete, or false if it exited early for any reason
-func doWork(client *rpc.HttpApi, httpClient *http.Client, workResponse WorkResponse) (bool, error) {
-	start := time.Now()
-
-	errInt := 1
-
+func getKuboStats(client *rpc.HttpApi, workResponse *WorkResponse) error {
 	nID, err := nodeID(client)
 	if err != nil {
-		return false, fmt.Errorf("getting node id failed: %w", err)
+		return fmt.Errorf("getting node id failed: %w", err)
 	}
 
 	workResponse.IPFSID = nID.ID
 
 	sys, err := diagSys(client)
 	if err != nil {
-		return false, fmt.Errorf("getting diag/sys failed: %w", err)
+		return fmt.Errorf("getting diag/sys failed: %w", err)
 	}
 
 	workResponse.IPFSVersion = sys.IPFSVersion
@@ -144,10 +150,25 @@ func doWork(client *rpc.HttpApi, httpClient *http.Client, workResponse WorkRespo
 
 	peers, err := getPeers(client)
 	if err != nil {
-		return false, fmt.Errorf("fetching peers failed: %w", err)
+		return fmt.Errorf("fetching peers failed: %w", err)
 	}
 
 	workResponse.Peers = peers
+
+	return nil
+}
+
+// first return value is if the operation was complete, or false if it exited early for any reason
+func doWork(client *rpc.HttpApi, httpClient *http.Client, workResponse WorkResponse) (bool, error) {
+	start := time.Now()
+	defer workResponse.ObserveJob(start)
+
+	errInt := 1
+
+	err := getKuboStats(client, &workResponse)
+	if err != nil {
+		return false, fmt.Errorf("get kubo stats failed: %w", err)
+	}
 
 	work, err := requestWork(httpClient, workResponse)
 	if err != nil {
@@ -209,7 +230,9 @@ func doWork(client *rpc.HttpApi, httpClient *http.Client, workResponse WorkRespo
 		return false, fmt.Errorf("post stats failed: %w", err)
 	}
 
-	workResponse.ObserveJob(start)
+	if workResponse.Error != nil {
+		return false, nil
+	}
 
 	return true, nil
 }
@@ -398,6 +421,10 @@ func downloadFile(client *rpc.HttpApi, httpClient *http.Client, download string,
 		return nil, fmt.Errorf("download failed: %w", err)
 	}
 	defer downloadResp.Body.Close()
+
+	if downloadResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download file not OK: %d", downloadResp.StatusCode)
+	}
 
 	body, writer := io.Pipe()
 	reqMultipart := multipart.NewWriter(writer)
@@ -735,6 +762,8 @@ func (r WorkResponse) Reader() io.Reader {
 	if r.Avail != nil {
 		data.Set("avail", strconv.Itoa(*r.Avail))
 	}
+
+	slog.Info("work response", "data", data)
 
 	return strings.NewReader(data.Encode())
 }
