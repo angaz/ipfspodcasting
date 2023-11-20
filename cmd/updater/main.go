@@ -81,14 +81,9 @@ func main() {
 	for {
 		nextUpdate := time.Now().Add(*updateFrequency)
 
-		completed, err := doWork(client, httpClient, workRequest)
+		_, err := doWork(client, httpClient, workRequest)
 		if err != nil {
 			slog.Error("job failed", "err", err)
-		}
-
-		if completed {
-			time.Sleep(5 * time.Second)
-			continue
 		}
 
 		time.Sleep(time.Until(nextUpdate))
