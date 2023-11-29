@@ -380,6 +380,13 @@ type downloadFileResponse struct {
 }
 
 func downloadOrPinFile(client *rpc.HttpApi, httpClient *http.Client, download string, filename string) (*downloadFileResponse, error) {
+	downloadResp, err := downloadFile(client, httpClient, download, filename)
+	if err == nil {
+		return downloadResp, nil
+	}
+
+	slog.Error("download failed, try pin", "err", err, "download", download)
+
 	url, err := url.Parse(download)
 	if err != nil {
 		slog.Info("parse download url failed", "err", err, "download", download)
