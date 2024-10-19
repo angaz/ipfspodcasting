@@ -48,7 +48,7 @@
         };
 
         packages = {
-          ipfspodcastingUpdater = pkgs.buildGo121Module {
+          ipfspodcastingUpdater = pkgs.buildGoModule {
             name = "ipfspodcasting-updater";
 
             src = gitignoreSource ./.;
@@ -70,7 +70,7 @@
 
         devshells.default = {
           packages = with pkgs; [
-            go_1_21
+            go
             golangci-lint
             kubo
           ];
