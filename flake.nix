@@ -54,11 +54,7 @@
             src = gitignoreSource ./.;
             subPackages = [ "cmd/updater" ];
 
-            vendorHash = "sha256-NlqLXSU9SwiCg6bt/+Q4qU/ST4mgqzSbhyaKr57f1Fg=";
-
-            doCheck = false;
-
-            CGO_ENABLED = 0;
+            vendorHash = "sha256-chkbPYWWCPnLQ7kWdCtiwf8opRBsN/fp41Qw28vi6zU=";
 
             ldflags = [
               "-s"

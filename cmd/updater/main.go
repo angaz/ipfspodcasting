@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/angaz/ipfspodcasting/pkg/metrics"
-	"github.com/ipfs/boxo/coreiface/path"
+	"github.com/ipfs/boxo/path"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/kubo/client/rpc"
 	"github.com/multiformats/go-multiaddr"
@@ -296,7 +296,12 @@ func repoStats(client *rpc.HttpApi) (*repoStatsResponse, error) {
 }
 
 func pinDelete(client *rpc.HttpApi, hash string) error {
-	err := client.Pin().Rm(context.Background(), path.New(hash))
+	hashPath, err := path.NewPath(hash)
+	if err != nil {
+		return fmt.Errorf("hash to path: %w", err)
+	}
+
+	err = client.Pin().Rm(context.Background(), hashPath)
 	if err != nil {
 		// This error is OK for us. Sometimes we get delete requests for
 		// files we don't have pinned. That's OK.
@@ -310,7 +315,12 @@ func pinDelete(client *rpc.HttpApi, hash string) error {
 }
 
 func pinAdd(client *rpc.HttpApi, hash string) error {
-	err := client.Pin().Add(context.Background(), path.New(hash))
+	hashPath, err := path.NewPath(hash)
+	if err != nil {
+		return fmt.Errorf("hash to path: %w", err)
+	}
+
+	err = client.Pin().Add(context.Background(), hashPath)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
