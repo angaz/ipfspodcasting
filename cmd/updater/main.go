@@ -296,7 +296,7 @@ func repoStats(client *rpc.HttpApi) (*repoStatsResponse, error) {
 }
 
 func pinDelete(client *rpc.HttpApi, hash string) error {
-	hashPath, err := path.NewPath(hash)
+	hashPath, err := path.NewPath("/ipfs/" + hash)
 	if err != nil {
 		return fmt.Errorf("hash to path: %w", err)
 	}
@@ -315,7 +315,7 @@ func pinDelete(client *rpc.HttpApi, hash string) error {
 }
 
 func pinAdd(client *rpc.HttpApi, hash string) error {
-	hashPath, err := path.NewPath(hash)
+	hashPath, err := path.NewPath("/ipfs/" + hash)
 	if err != nil {
 		return fmt.Errorf("hash to path: %w", err)
 	}
